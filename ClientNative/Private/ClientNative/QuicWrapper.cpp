@@ -1,0 +1,264 @@
+#include "ClientNative/QuicWrapper.h"
+#include "ClientNative/Assert.h"
+
+constexpr QUIC_UINT62 defaultStreamErrorCode = 0x0A;
+constexpr QUIC_UINT62 DefaultCloseErrorCode = 0x0B;
+
+const QUIC_BUFFER QuicWrapper::SLApplicationProtocol =
+{
+    sizeof("h3") - 1,
+    const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>("h3"))
+};
+
+void QuicWrapper::Startup()
+{
+    OpenMsQuic();
+    OpenRegistration();
+}
+
+void QuicWrapper::Cleanup()
+{
+    CloseRegistration();
+    CloseMsQuic();
+}
+
+bool QuicWrapper::CreateConnection(QUIC_CONNECTION_CALLBACK_HANDLER handler, void* context, HQUIC* outConnection)
+{
+    QUIC_STATUS retConnectionOpen = QuicApiTable->ConnectionOpen(Registration, handler, context, outConnection);
+    if (QUIC_FAILED(retConnectionOpen))
+    {
+        LIVE_ASSERT(false, "MsQuic ConnectionOpen Failed");
+        return false;
+    }
+
+    return true;
+}
+
+void QuicWrapper::ShutdownConnection(HQUIC connection)
+{
+    if (connection != nullptr)
+    {
+        QuicApiTable->ConnectionShutdown(connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, DefaultCloseErrorCode);
+    }
+}
+
+void QuicWrapper::CloseConnection(HQUIC connection)
+{
+    if (connection != nullptr)
+    {
+        QuicApiTable->ConnectionClose(connection);
+    }
+}
+
+bool QuicWrapper::OpenStream(HQUIC connection, HQUIC* outStream, void* context, QUIC_STREAM_CALLBACK callback)
+{
+    if (connection == nullptr)
+    {
+        return false;
+    }
+
+    QUIC_STATUS retStreamOpen = QuicApiTable->StreamOpen(connection, QUIC_STREAM_OPEN_FLAG_NONE, callback, context, outStream);
+    if (QUIC_FAILED(retStreamOpen))
+    {
+        LIVE_ASSERT(false, "MsQuic StreamOpen Failed");
+        return false;
+    }
+
+    QUIC_STATUS retStreamStart = QuicApiTable->StreamStart(*outStream, QUIC_STREAM_START_FLAG_NONE);
+    if (QUIC_FAILED(retStreamStart))
+    {
+        CloseStream(*outStream);
+        ShutdownConnection(connection);
+        return false;
+    }
+
+    return true;
+}
+
+void QuicWrapper::ShutdownStream(HQUIC stream)
+{
+    if (stream != nullptr)
+    {
+        QuicApiTable->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, defaultStreamErrorCode);
+    }
+}
+
+bool QuicWrapper::Connect(HQUIC connection, HQUIC Configuration, const char* ip, uint16_t port)
+{
+    if (connection == nullptr)
+    {
+        return false;
+    }
+
+    QUIC_STATUS retConnectionStart = QuicApiTable->ConnectionStart(connection, Configuration, QUIC_ADDRESS_FAMILY_INET, ip, port);
+    if (QUIC_FAILED(retConnectionStart))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool QuicWrapper::Send(HQUIC stream, QUIC_BUFFER* buffer, void* sendContext)
+{
+    if (stream == nullptr || buffer == nullptr)
+    {
+        return false;
+    }
+
+    if (buffer->Length <= 0)
+    {
+        return false;
+    }
+
+    if (buffer->Buffer == nullptr)
+    {
+        return false;
+    }
+
+    QUIC_STATUS retStreamSend = QuicApiTable->StreamSend(stream, buffer, 1, QUIC_SEND_FLAG_NONE, sendContext);
+    if (QUIC_FAILED(retStreamSend))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+void QuicWrapper::CloseStream(HQUIC stream)
+{
+    QuicApiTable->StreamClose(stream);
+}
+
+std::string QuicWrapper::QuicErrorToString(const EQuicError Error)
+{
+    switch (Error)
+    {
+    case EQuicError::Success:                    return "Success";
+    case EQuicError::OutOfMemory:                return "OutOfMemory";
+    case EQuicError::InvalidParameter:           return "InvalidParameter";
+    case EQuicError::InvalidState:               return "InvalidState";
+    case EQuicError::NotSupported:               return "NotSupported";
+    case EQuicError::NotFound:                   return "NotFound";
+    case EQuicError::BufferTooSmall:            return "BufferTooSmall";
+    case EQuicError::HandshakeFailure:           return "HandshakeFailure";
+    case EQuicError::Aborted:                    return "Aborted";
+    case EQuicError::AddressInUse:               return "AddressInUse";
+    case EQuicError::InvalidAddress:             return "InvalidAddress";
+    case EQuicError::ConnectionTimeout:          return "ConnectionTimeout";
+    case EQuicError::ConnectionIdle:             return "ConnectionIdle";
+    case EQuicError::InternalError:              return "InternalError";
+    case EQuicError::Unreachable:                 return "Unreachable";
+    case EQuicError::ConnectionRefused:          return "ConnectionRefused";
+    case EQuicError::ProtocolError:              return "ProtocolError";
+    case EQuicError::VersionNegotiation:         return "VersionNegotiation";
+    case EQuicError::UserCanceled:               return "UserCanceled";
+    case EQuicError::AlpnNegotiationFailure:     return "AlpnNegotiationFailure";
+    case EQuicError::StreamLimitReached:         return "StreamLimitReached";
+    case EQuicError::Unknown:                    return "Unknown";
+    default:                                    return "InvalidQuicErrorValue";
+    }
+}
+
+void QuicWrapper::OpenMsQuic()
+{
+    QUIC_STATUS retMsQuicOpen = ::MsQuicOpen2(&QuicApiTable);
+    if (QUIC_FAILED(retMsQuicOpen))
+    {
+        LIVE_ASSERT(false, "MsQuic Open Failed");
+    }
+}
+
+void QuicWrapper::CloseMsQuic()
+{
+    if (QuicApiTable != nullptr)
+    {
+        ::MsQuicClose(QuicApiTable);
+        QuicApiTable = nullptr;
+    }
+}
+
+void QuicWrapper::OpenRegistration()
+{
+    QUIC_REGISTRATION_CONFIG registrationConfig;
+    registrationConfig.AppName = "SL";
+
+    // 기본값인 QUIC_EXECUTION_PROFILE_LOW_LATENCY을 사용하도록 고정합니다.
+    registrationConfig.ExecutionProfile = QUIC_EXECUTION_PROFILE_LOW_LATENCY;
+
+    QUIC_STATUS retRegistrationOpen = QuicApiTable->RegistrationOpen(&registrationConfig, &Registration);
+    if (QUIC_FAILED(retRegistrationOpen))
+    {
+        LIVE_ASSERT(false, "MsQuic RegistrationOpen Failed");
+    }
+}
+
+void QuicWrapper::CloseRegistration()
+{
+    if (Registration != nullptr)
+    {
+        QuicApiTable->RegistrationClose(Registration);
+        Registration = nullptr;
+    }
+}
+
+HQUIC QuicWrapper::OpenConfigurationOrNull(
+    const uint64_t idleTimeoutMs,
+    const uint64_t handshakeIdleTimeoutMs,
+    const uint32_t disconnectTimeoutMs,
+    bool bUseCertificateValidation)
+{
+    QUIC_SETTINGS settings;
+    memset(&settings, 0, sizeof(settings));
+
+    settings.IdleTimeoutMs = idleTimeoutMs;
+    settings.IsSet.IdleTimeoutMs = 1;
+
+    settings.HandshakeIdleTimeoutMs = handshakeIdleTimeoutMs;
+    settings.IsSet.HandshakeIdleTimeoutMs = 1;
+
+    settings.DisconnectTimeoutMs = disconnectTimeoutMs;
+    settings.IsSet.DisconnectTimeoutMs = 1;
+
+    HQUIC Configuration = nullptr;
+
+    QUIC_STATUS retConfigurationOpen = QuicApiTable->ConfigurationOpen(Registration, &SLApplicationProtocol, 1, &settings, sizeof(settings), nullptr, &Configuration);
+    if (QUIC_FAILED(retConfigurationOpen))
+    {
+        LIVE_ASSERT(false, "MsQuic ConfigurationOpen Failed");
+        return nullptr;
+    }
+
+    LoadConfigurationCredential(Configuration, bUseCertificateValidation);
+    return Configuration;
+}
+
+void QuicWrapper::CloseConfiguration(HQUIC Configuration)
+{
+    if (Configuration != nullptr)
+    {
+        QuicApiTable->ConfigurationClose(Configuration);
+    }
+}
+
+void QuicWrapper::LoadConfigurationCredential(HQUIC Configuration, bool useCertificateValidation)
+{
+    QUIC_CREDENTIAL_CONFIG credentialConfig;
+    memset(&credentialConfig, 0, sizeof(credentialConfig));
+
+    credentialConfig.Type = QUIC_CREDENTIAL_TYPE_NONE;
+    credentialConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
+
+    if (!useCertificateValidation)
+    {
+        credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+    }
+
+    // TLS 자격 증명 로드 - 인증서가 필요한지 여부를 나타내기 위해 클라이언트 측에서도 필요합니다.
+    QUIC_STATUS retConfigurationLoadCredential = QuicApiTable->ConfigurationLoadCredential(Configuration, &credentialConfig);
+    if (QUIC_FAILED(retConfigurationLoadCredential))
+    {
+        LIVE_ASSERT(false, "MsQuic ConfigurationLoadCredential Failed");
+        return;
+    }
+}

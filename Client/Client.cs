@@ -1,13 +1,16 @@
-﻿using System.Net.Quic;
+﻿namespace Client;
+
+using System.Net.Quic;
 using System.Net.Security;
 using System.Net;
 using System.Buffers;
 using System.Text;
-
-namespace Client;
+using ConsoleKeyUtils;
 
 internal class Client
 {
+    private static QuicStream? ClientStream;
+
     private static async Task Main(string[] args)
     {
         TaskScheduler.UnobservedTaskException += (sender, e) =>
@@ -15,59 +18,74 @@ internal class Client
             Console.WriteLine(e);
         };
 
-        await Task.Delay(1000);
-
-        var clientConnectionOptions = new QuicClientConnectionOptions()
+        ConsoleKeyDispatcher.BindHandler(ConsoleKey.D1, async () =>
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 23456),
-
-            DefaultStreamErrorCode = 0x0A,
-            DefaultCloseErrorCode = 0x0B,
-
-            MaxInboundUnidirectionalStreams = 0,
-            MaxInboundBidirectionalStreams = 1,
-
-            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            var clientConnectionOptions = new QuicClientConnectionOptions()
             {
-                ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
-                RemoteCertificateValidationCallback = (sender, certificate, chain, errors) => true,
-            }
-        };
+                // 접속할 IP 주소와 포트 번호를 지정
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 23456),
 
-        for (int i = 0; i < 1000; ++i)
-        {
-            _ = ClientLoop(clientConnectionOptions);
-            await Task.Delay(5);
-        }
+                DefaultStreamErrorCode = 0x0A,
+                DefaultCloseErrorCode = 0x0B,
 
-        await Task.Delay(Timeout.Infinite);
-    }
+                MaxInboundUnidirectionalStreams = 0,
+                MaxInboundBidirectionalStreams = 1,
 
-    private static async Task ClientLoop(QuicClientConnectionOptions options)
-    {
-        QuicConnection connection = await QuicConnection.ConnectAsync(options);
-        Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
+                ClientAuthenticationOptions = new SslClientAuthenticationOptions
+                {
+                    ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
+                    RemoteCertificateValidationCallback = (sender, certificate, chain, errors) => true,
+                }
+            };
 
-        byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(1024);
+            QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
+            Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
+
+            _ = ClientLoop(connection, clientConnectionOptions);
+        }, "QuicConnection 연결");
+
         int number = 0;
-        using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-        while (true)
+        ConsoleKeyDispatcher.BindAsyncHandler(ConsoleKey.D2, async () =>
         {
-            byte[] helloWorldToBytes = Encoding.UTF8.GetBytes($"Hello, World! ({number++})");
-
-            if (Random.Shared.Next() % 10 == 0)
+            if (ClientStream is null)
             {
-                await connection.CloseAsync(0x0B);
                 return;
             }
 
-            await stream.WriteAsync(helloWorldToBytes, 0, helloWorldToBytes.Length);
-            await stream.ReadExactlyAsync(receiveBuffer, 0, helloWorldToBytes.Length);
-            string receivedString = Encoding.UTF8.GetString(receiveBuffer);
+            byte[] helloWorldToBytes = Encoding.UTF8.GetBytes($"Hello, World! ({number++})");
 
-            Console.WriteLine(receivedString);
+            await ClientStream.WriteAsync(helloWorldToBytes, 0, helloWorldToBytes.Length);
+        }, "Hello, World Send");
 
-            await Task.Delay(10);
+        // 사용법 출력
+        foreach ((ConsoleKey key, string? handlerName) in ConsoleKeyDispatcher.HandlerNames)
+        {
+            Console.WriteLine($"[{key}]: {handlerName}");
+        }
+
+        ConsoleKeyDispatcher.BindExitHandler();
+        ConsoleKeyDispatcher.KeepDispatching();
+    }
+
+    private static async Task ClientLoop(QuicConnection connection, QuicClientConnectionOptions options)
+    {
+        try
+        {
+            Memory<byte> receiveBuffer = new byte[1024];
+
+            ClientStream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+
+            while (true)
+            {
+                int readBytesCounts = await ClientStream.ReadAsync(receiveBuffer);
+                string receivedString = Encoding.UTF8.GetString(receiveBuffer.ToArray(), 0, readBytesCounts);
+
+                Console.WriteLine(receivedString);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
         }
     }
 }

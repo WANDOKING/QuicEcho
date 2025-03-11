@@ -1,0 +1,14 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/1. Client/">
+    <Project Path="Client/Client.csproj" />
+    <Project Path="ClientNative/ClientNative.vcxproj" />
+  </Folder>
+  <Folder Name="/2. Server/">
+    <Project Path="Server/Server.csproj" />
+  </Folder>
+</Solution>
