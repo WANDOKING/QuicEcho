@@ -39,14 +39,13 @@ protected:
     }
 };
 
-
 int main(void)
 {
     // QUIC Initialize
     QuicWrapper::Startup();
 
     // Configuration Open
-    HQUIC Configuration = QuicWrapper::OpenConfigurationOrNull();
+    HQUIC Configuration = QuicWrapper::OpenConfigurationOrNull(0, 10'000, 5'000, false);
 
     // Client Create
     TestQuicClient client(Configuration);

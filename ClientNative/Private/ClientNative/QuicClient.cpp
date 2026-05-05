@@ -19,12 +19,13 @@ struct QuicSendContext
     std::function<void(bool)> OnSent = nullptr;
 };
 
-_Function_class_(QUIC_CONNECTION_CALLBACK) QUIC_STATUS QUIC_API 
+_Function_class_(QUIC_CONNECTION_CALLBACK) QUIC_STATUS QUIC_API
 QuicClient::ConnectionCallback(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event)
 {
     QuicClient* client = static_cast<QuicClient*>(context);
 
-    switch (event->Type) {
+    switch (event->Type)
+    {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         client->OnConnected(event->CONNECTED.NegotiatedAlpn, event->CONNECTED.NegotiatedAlpnLength, event->CONNECTED.SessionResumed);
         break;
@@ -59,6 +60,14 @@ QuicClient::ConnectionCallback(HQUIC connection, void* context, QUIC_CONNECTION_
 
         break;
 
+    case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
+        client->OnRemoteCertificateReceived(
+            event->PEER_CERTIFICATE_RECEIVED.Certificate,
+            event->PEER_CERTIFICATE_RECEIVED.DeferredErrorFlags,
+            event->PEER_CERTIFICATE_RECEIVED.DeferredStatus,
+            event->PEER_CERTIFICATE_RECEIVED.Chain);
+        break;
+
         // 사용하지 않는 이벤트
     case QUIC_CONNECTION_EVENT_LOCAL_ADDRESS_CHANGED:
     case QUIC_CONNECTION_EVENT_STREAMS_AVAILABLE:
@@ -69,7 +78,6 @@ QuicClient::ConnectionCallback(HQUIC connection, void* context, QUIC_CONNECTION_
     case QUIC_CONNECTION_EVENT_DATAGRAM_SEND_STATE_CHANGED:
     case QUIC_CONNECTION_EVENT_RESUMED:
     case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
-    case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
         break;
 
     default:
@@ -80,7 +88,7 @@ QuicClient::ConnectionCallback(HQUIC connection, void* context, QUIC_CONNECTION_
     return QUIC_STATUS_SUCCESS;
 }
 
-_Function_class_(QUIC_STREAM_CALLBACK) QUIC_STATUS QUIC_API 
+_Function_class_(QUIC_STREAM_CALLBACK) QUIC_STATUS QUIC_API
 QuicClient::StreamCallback(HQUIC stream, void* context, QUIC_STREAM_EVENT* event)
 {
     QuicClient* client = static_cast<QuicClient*>(context);
@@ -151,7 +159,7 @@ void QuicClient::OnStreamSendComplete(void* clientContext, const bool isCanceled
     delete sendContext;
 }
 
-QuicClient::QuicClient(HQUIC Configuration) 
+QuicClient::QuicClient(HQUIC Configuration)
     : lastQuicError(EQuicError::Success)
     , Configuration(Configuration)
     , onConnected(nullptr)
@@ -264,6 +272,11 @@ bool QuicClient::SendAsync(std::vector<uint8_t>* data, std::function<void(bool)>
     }
 
     return true;
+}
+
+void QuicClient::OnRemoteCertificateReceived(QUIC_CERTIFICATE* certificate, uint32_t deferredErrorFlags, HRESULT deferredStatus, QUIC_CERTIFICATE_CHAIN* chain)
+{
+    std::cout << "OnRemoteCertificateReceived called" << std::endl;
 }
 
 EQuicError QuicClient::ConvertQuicStatus(HRESULT status)

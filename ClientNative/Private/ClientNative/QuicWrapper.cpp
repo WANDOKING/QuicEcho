@@ -248,6 +248,8 @@ void QuicWrapper::LoadConfigurationCredential(HQUIC Configuration, bool useCerti
 
     credentialConfig.Type = QUIC_CREDENTIAL_TYPE_NONE;
     credentialConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
+    credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
+    credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_DEFER_CERTIFICATE_VALIDATION;
 
     if (!useCertificateValidation)
     {

@@ -6,16 +6,19 @@ using System.Net;
 using System.Buffers;
 using System.Text;
 using ConsoleKeyUtils;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Authentication;
 
 internal class Client
 {
+    private static bool shouldForceDenyCertificate;
     private static QuicStream? ClientStream;
 
     private static async Task Main(string[] args)
     {
         TaskScheduler.UnobservedTaskException += (sender, e) =>
         {
-            Console.WriteLine(e);
+            Console.WriteLine($"UnobservedTaskException= {e.Exception}");
         };
 
         ConsoleKeyDispatcher.BindHandler(ConsoleKey.D1, async () =>
@@ -33,15 +36,27 @@ internal class Client
 
                 ClientAuthenticationOptions = new SslClientAuthenticationOptions
                 {
+                    TargetHost = "localhost",
+
                     ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
-                    RemoteCertificateValidationCallback = (sender, certificate, chain, errors) => true,
+
+                    // 서버측 인증서 검증 콜백
+                    RemoteCertificateValidationCallback = QuicRemoteCertificateValidationCallback,
                 }
             };
 
-            QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
-            Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
+            try
+            {
+                QuicConnection connection = await QuicConnection.ConnectAsync(clientConnectionOptions);
+                Console.WriteLine($"Connected {connection.LocalEndPoint} --> {connection.RemoteEndPoint}");
 
-            _ = ClientLoop(connection, clientConnectionOptions);
+                // 스트림을 생성하고 Receive 루프 수행
+                _ = ClientLoop(connection, clientConnectionOptions);
+            }
+            catch (AuthenticationException ex)
+            {
+                Console.WriteLine($"{nameof(AuthenticationException)} occured. ex={ex}");
+            }
         }, "QuicConnection 연결");
 
         int number = 0;
@@ -57,6 +72,12 @@ internal class Client
             await ClientStream.WriteAsync(helloWorldToBytes, 0, helloWorldToBytes.Length);
         }, "Hello, World Send");
 
+        ConsoleKeyDispatcher.BindHandler(ConsoleKey.P, () =>
+        {
+            shouldForceDenyCertificate = !shouldForceDenyCertificate;
+            Console.WriteLine($"shouldForceDenyCertificate: {shouldForceDenyCertificate}");
+        }, "인증서 검증 결과 반전");
+
         // 사용법 출력
         foreach ((ConsoleKey key, string? handlerName) in ConsoleKeyDispatcher.HandlerNames)
         {
@@ -65,6 +86,32 @@ internal class Client
 
         ConsoleKeyDispatcher.BindExitHandler();
         ConsoleKeyDispatcher.KeepDispatching();
+    }
+
+    private static bool QuicRemoteCertificateValidationCallback(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
+    {
+        Console.WriteLine($"{nameof(QuicRemoteCertificateValidationCallback)} called.");
+
+        if (shouldForceDenyCertificate)
+        {
+            return false;
+        }
+
+        if (sslPolicyErrors is SslPolicyErrors.None)
+        {
+            return true;
+        }
+
+        if (chain is not null)
+        {
+            chain.ChainStatus.ToList().ForEach(status =>
+            {
+                Console.WriteLine($"ChainStatus: {status.Status} | {status.StatusInformation}");
+            });
+        }
+
+        Console.WriteLine($"RemoteCertificateValidation will be failed. SSL Policy Errors: {sslPolicyErrors}");
+        return false;
     }
 
     private static async Task ClientLoop(QuicConnection connection, QuicClientConnectionOptions options)

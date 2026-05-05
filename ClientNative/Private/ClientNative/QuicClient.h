@@ -1,9 +1,11 @@
 #pragma once
 
+#include "../../ThirdParty/ClientNative/include/msquic.h"
+
 #include <atomic>
 #include <functional>
-#include <string>
 #include <vector>
+#include <string>
 
 enum class EQuicError;
 
@@ -44,6 +46,11 @@ protected:
     virtual void OnConnected(bool isConnectSucceed) = 0;
     virtual void OnClosed(EQuicError error) = 0;
     virtual void OnReceived(uint8_t* data, int32_t count) = 0;
+    virtual void OnRemoteCertificateReceived(
+        QUIC_CERTIFICATE* certificate,
+        uint32_t deferredErrorFlags,
+        HRESULT deferredStatus,
+        QUIC_CERTIFICATE_CHAIN* chain);
 
 public:
     static EQuicError ConvertQuicStatus(HRESULT status);

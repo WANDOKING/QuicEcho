@@ -6,7 +6,7 @@
   </Configurations>
   <Folder Name="/1. Client/">
     <Project Path="Client/Client.csproj" />
-    <Project Path="ClientNative/ClientNative.vcxproj" />
+    <Project Path="ClientNative/ClientNative.vcxproj" Id="bc3d8f14-c0ff-4781-98c6-049316fbc248" />
   </Folder>
   <Folder Name="/2. Server/">
     <Project Path="Server/Server.csproj" />
