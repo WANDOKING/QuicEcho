@@ -20,4 +20,9 @@ public static class TlsUtils
         // 4. 인증서를 PFX(PKCS#12) 형식으로 내보내고, X509Certificate2 객체로 로드합니다.
         return X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx, password), password);
     }
+
+    public static X509Certificate2 LoadFromPfxFile(string path, string? password = default)
+    {
+        return X509CertificateLoader.LoadPkcs12FromFile(path, password);
+    }
 }
