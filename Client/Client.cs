@@ -3,15 +3,21 @@
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net;
-using System.Buffers;
 using System.Text;
 using ConsoleKeyUtils;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Authentication;
 
+internal enum CertificateValidationMode
+{
+    Default,
+    ForceAllow,
+    ForceDeny,
+};
+
 internal class Client
 {
-    private static bool shouldForceDenyCertificate;
+    private static CertificateValidationMode certificateValidationMode;
     private static QuicStream? ClientStream;
 
     private static async Task Main(string[] args)
@@ -74,9 +80,15 @@ internal class Client
 
         ConsoleKeyDispatcher.BindHandler(ConsoleKey.P, () =>
         {
-            shouldForceDenyCertificate = !shouldForceDenyCertificate;
-            Console.WriteLine($"shouldForceDenyCertificate: {shouldForceDenyCertificate}");
-        }, "인증서 검증 결과 반전");
+            certificateValidationMode = certificateValidationMode switch
+            {
+                CertificateValidationMode.Default => CertificateValidationMode.ForceAllow,
+                CertificateValidationMode.ForceAllow => CertificateValidationMode.ForceDeny,
+                CertificateValidationMode.ForceDeny => CertificateValidationMode.Default,
+            };
+
+            Console.WriteLine($"{nameof(certificateValidationMode)}: {certificateValidationMode}");
+        }, "인증서 검증 모드 변경");
 
         // 사용법 출력
         foreach ((ConsoleKey key, string? handlerName) in ConsoleKeyDispatcher.HandlerNames)
@@ -92,9 +104,13 @@ internal class Client
     {
         Console.WriteLine($"{nameof(QuicRemoteCertificateValidationCallback)} called.");
 
-        if (shouldForceDenyCertificate)
+        if (certificateValidationMode is CertificateValidationMode.ForceDeny)
         {
             return false;
+        }
+        else if (certificateValidationMode is CertificateValidationMode.ForceAllow)
+        {
+            return true;
         }
 
         if (sslPolicyErrors is SslPolicyErrors.None)

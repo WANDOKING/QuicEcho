@@ -7,7 +7,6 @@ using System.Buffers;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
@@ -41,7 +40,7 @@ internal class Program
             {
                 foreach (Exception exception in ex.InnerExceptions)
                 {
-                    Logger.Fatal($"UnobservedTaskException = {exception}");
+                    Logger.Fatal($"{nameof(TaskScheduler.UnobservedTaskException)} = {exception}");
                 }
             }
         };
@@ -61,6 +60,27 @@ internal class Program
             Logger.Debug($"{property.Name}: {property.GetValue(options)}");
         }
 
+        // 1. SslServerAuthenticationOptions
+        X509Certificate2 certificate;
+
+        if (string.IsNullOrWhiteSpace(options.CertificatePath))
+        {
+            Logger.Info($"Use auto generated Self-signed certificate.");
+            certificate = TlsUtils.CreateSelfSignedCertificate();
+        }
+        else
+        {
+            Logger.Info($"Use Certificate {options.CertificatePath}");
+            certificate = X509CertificateLoader.LoadPkcs12FromFile(options.CertificatePath, options.CertificatePassword);
+        }
+
+        var authenticationOptions = new SslServerAuthenticationOptions()
+        {
+            ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
+            ServerCertificate = certificate,
+        };
+
+        // 2. QuicListenerOptions
         var listenerOptions = new QuicListenerOptions
         {
             ListenEndPoint = new IPEndPoint(IPAddress.Any, 23456),
@@ -77,11 +97,7 @@ internal class Program
 
                     IdleTimeout = TimeSpan.FromSeconds(5),
 
-                    ServerAuthenticationOptions = new SslServerAuthenticationOptions
-                    {
-                        ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
-                        ServerCertificate = string.IsNullOrWhiteSpace(options.CertificatePath) ? TlsUtils.CreateSelfSignedCertificate() : X509CertificateLoader.LoadPkcs12FromFile(@"server.pfx", "test"),
-                    }
+                    ServerAuthenticationOptions = authenticationOptions,
                 };
 
                 return ValueTask.FromResult(serverConnectionOptions);
@@ -92,6 +108,7 @@ internal class Program
         Logger.Debug($"[{nameof(QuicListenerOptions)}] {nameof(listenerOptions.ListenBacklog)}: {listenerOptions.ListenBacklog}");
         Logger.Debug($"[{nameof(QuicListenerOptions)}] {nameof(listenerOptions.ApplicationProtocols)}: {string.Join(", ", listenerOptions.ApplicationProtocols)}");
 
+        // 3. QuicListener Start
         await using (QuicListener listener = await QuicListener.ListenAsync(listenerOptions))
         {
             Logger.Info($"Listening Start as {listener.LocalEndPoint}");
@@ -108,7 +125,7 @@ internal class Program
                 }
                 catch (Exception ex)
                 {
-                    AcceptLogger.Error("Exception at Accept, ");
+                    AcceptLogger.Error($"Exception at Accept, Exception={ex}");
                 }
             }
         }
@@ -123,20 +140,27 @@ internal class Program
 
         try
         {
-            await using var stream = await client.AcceptInboundStreamAsync().ConfigureAwait(false);
+            Logger.Trace($"ID {clientId} : before {nameof(QuicConnection.AcceptInboundStreamAsync)}");
+            await using QuicStream stream = await client.AcceptInboundStreamAsync().ConfigureAwait(false);
+            Logger.Trace($"ID {clientId} : after {nameof(QuicConnection.AcceptInboundStreamAsync)}");
 
             while (true)
             {
+                Logger.Trace($"ID {clientId} : before {nameof(QuicStream.ReadAsync)}");
                 int receivedBytesCount = await stream.ReadAsync(receiveBuffer).ConfigureAwait(false);
+                Logger.Trace($"ID {clientId} : after {nameof(QuicStream.ReadAsync)}");
+
                 ReceiveLogger.Debug($"Received Count = {receivedBytesCount}, Data = {Encoding.UTF8.GetString(receiveBuffer)}");
 
                 // Echo for test
+                Logger.Trace($"ID {clientId} : before {nameof(QuicStream.WriteAsync)}");
                 await stream.WriteAsync(receiveBuffer, 0, receivedBytesCount).ConfigureAwait(false);
+                Logger.Trace($"ID {clientId} : after {nameof(QuicStream.WriteAsync)}");
             }
         }
         catch (Exception ex)
         {
-            ReceiveLogger.Debug($"ID {clientId} : {ex}");
+            ReceiveLogger.Error($"ID {clientId} : Exception Occured={ex}");
         }
         finally
         {

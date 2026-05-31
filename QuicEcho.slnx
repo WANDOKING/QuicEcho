@@ -11,4 +11,7 @@
   <Folder Name="/2. Server/">
     <Project Path="Server/Server.csproj" />
   </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+  </Folder>
 </Solution>

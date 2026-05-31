@@ -1,37 +1,40 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="ThirdParty">
-      <UniqueIdentifier>{31ce1df5-8749-4f0c-9736-62148ca7bd19}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Private">
-      <UniqueIdentifier>{c55ae5b3-2427-4eac-a133-38ba7f891590}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="ThirdParty\include">
-      <UniqueIdentifier>{ea03663f-3bfd-4c59-97fd-32807e51240f}</UniqueIdentifier>
-    </Filter>
+    <ClCompile Include="CertificateValidator.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="QuicClient.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="QuicWrapper.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ThirdParty\ClientNative\include\msquic.h">
-      <Filter>ThirdParty\include</Filter>
+    <None Include="vcpkg.json" />
+    <None Include="vcpkg-configuration.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Assert.h">
+      <Filter>Source</Filter>
     </ClInclude>
-    <ClInclude Include="Private\ClientNative\QuicWrapper.h">
-      <Filter>Private</Filter>
+    <ClInclude Include="CertificateValidator.h">
+      <Filter>Source</Filter>
     </ClInclude>
-    <ClInclude Include="Private\ClientNative\Assert.h">
-      <Filter>Private</Filter>
+    <ClInclude Include="QuicClient.h">
+      <Filter>Source</Filter>
     </ClInclude>
-    <ClInclude Include="Private\ClientNative\QuicClient.h">
-      <Filter>Private</Filter>
+    <ClInclude Include="QuicWrapper.h">
+      <Filter>Source</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="Private\ClientNative\QuicWrapper.cpp">
-      <Filter>Private</Filter>
-    </ClCompile>
-    <ClCompile Include="Private\ClientNative\QuicClient.cpp">
-      <Filter>Private</Filter>
-    </ClCompile>
+    <Filter Include="Source">
+      <UniqueIdentifier>{5b765575-69fc-4e0e-b73f-982d41066ad3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
 </Project>

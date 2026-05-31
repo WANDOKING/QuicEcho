@@ -15,7 +15,7 @@ public static class TlsUtils
         var request = new CertificateRequest("CN=localhost", ephemeralRsaKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 
         // 3. 유효기간이 30일인 Self-Signed Certificate을 생성합니다.
-        var certificate = request.CreateSelfSigned(DateTimeOffset.Now, DateTimeOffset.Now.AddDays(30));
+        var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow - TimeSpan.FromDays(7), DateTimeOffset.UtcNow - TimeSpan.FromDays(6));
 
         // 4. 인증서를 PFX(PKCS#12) 형식으로 내보내고, X509Certificate2 객체로 로드합니다.
         return X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx, password), password);

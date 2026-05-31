@@ -1,5 +1,5 @@
-#include "ClientNative/QuicWrapper.h"
-#include "ClientNative/Assert.h"
+ï»¿#include "QuicWrapper.h"
+#include "Assert.h"
 
 constexpr QUIC_UINT62 defaultStreamErrorCode = 0x0A;
 constexpr QUIC_UINT62 DefaultCloseErrorCode = 0x0B;
@@ -9,6 +9,37 @@ const QUIC_BUFFER QuicWrapper::SLApplicationProtocol =
     sizeof("h3") - 1,
     const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>("h3"))
 };
+
+EQuicError QuicWrapper::ConvertQuicStatus(QUIC_STATUS status)
+{
+    switch (status)
+    {
+    case QUIC_STATUS_SUCCESS:               return EQuicError::Success;
+    case QUIC_STATUS_PENDING:               return EQuicError::Pending;
+    case QUIC_STATUS_CONTINUE:              return EQuicError::Continue;
+    case QUIC_STATUS_OUT_OF_MEMORY:         return EQuicError::OutOfMemory;
+    case QUIC_STATUS_INVALID_PARAMETER:     return EQuicError::InvalidParameter;
+    case QUIC_STATUS_INVALID_STATE:         return EQuicError::InvalidState;
+    case QUIC_STATUS_NOT_SUPPORTED:         return EQuicError::NotSupported;
+    case QUIC_STATUS_NOT_FOUND:             return EQuicError::NotFound;
+    case QUIC_STATUS_BUFFER_TOO_SMALL:      return EQuicError::BufferTooSmall;
+    case QUIC_STATUS_HANDSHAKE_FAILURE:     return EQuicError::HandshakeFailure;
+    case QUIC_STATUS_ABORTED:               return EQuicError::Aborted;
+    case QUIC_STATUS_ADDRESS_IN_USE:        return EQuicError::AddressInUse;
+    case QUIC_STATUS_INVALID_ADDRESS:       return EQuicError::InvalidAddress;
+    case QUIC_STATUS_CONNECTION_TIMEOUT:    return EQuicError::ConnectionTimeout;
+    case QUIC_STATUS_CONNECTION_IDLE:       return EQuicError::ConnectionIdle;
+    case QUIC_STATUS_INTERNAL_ERROR:        return EQuicError::InternalError;
+    case QUIC_STATUS_UNREACHABLE:           return EQuicError::Unreachable;
+    case QUIC_STATUS_CONNECTION_REFUSED:    return EQuicError::ConnectionRefused;
+    case QUIC_STATUS_PROTOCOL_ERROR:        return EQuicError::ProtocolError;
+    case QUIC_STATUS_VER_NEG_ERROR:         return EQuicError::VersionNegotiation;
+    case QUIC_STATUS_USER_CANCELED:         return EQuicError::UserCanceled;
+    case QUIC_STATUS_ALPN_NEG_FAILURE:      return EQuicError::AlpnNegotiationFailure;
+    case QUIC_STATUS_STREAM_LIMIT_REACHED:  return EQuicError::StreamLimitReached;
+    default:                                return EQuicError::Unknown;
+    }
+}
 
 void QuicWrapper::Startup()
 {
@@ -20,6 +51,27 @@ void QuicWrapper::Cleanup()
 {
     CloseRegistration();
     CloseMsQuic();
+}
+
+bool QuicWrapper::UseOpenSSL()
+{
+    QUIC_TLS_PROVIDER TlsProvider = QUIC_TLS_PROVIDER_SCHANNEL;
+
+    uint32_t BufferLength = sizeof(TlsProvider);
+    QUIC_STATUS retGetParam = QuicApiTable->GetParam(nullptr, QUIC_PARAM_GLOBAL_TLS_PROVIDER, &BufferLength, &TlsProvider);
+    if (QUIC_FAILED(retGetParam))
+    {
+        LIVE_ASSERT(false, "GetParam Failed");
+    }
+
+    if (TlsProvider == QUIC_TLS_PROVIDER_OPENSSL)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 bool QuicWrapper::CreateConnection(QUIC_CONNECTION_CALLBACK_HANDLER handler, void* context, HQUIC* outConnection)
@@ -178,13 +230,11 @@ void QuicWrapper::CloseMsQuic()
     }
 }
 
-void QuicWrapper::OpenRegistration()
+void QuicWrapper::OpenRegistration(QUIC_EXECUTION_PROFILE ExecutionProfile)
 {
-    QUIC_REGISTRATION_CONFIG registrationConfig;
+    QUIC_REGISTRATION_CONFIG registrationConfig = {};
     registrationConfig.AppName = "SL";
-
-    // ±âº»°ªÀÎ QUIC_EXECUTION_PROFILE_LOW_LATENCYÀ» »ç¿ëÇÏµµ·Ï °íÁ¤ÇÕ´Ï´Ù.
-    registrationConfig.ExecutionProfile = QUIC_EXECUTION_PROFILE_LOW_LATENCY;
+    registrationConfig.ExecutionProfile = ExecutionProfile;
 
     QUIC_STATUS retRegistrationOpen = QuicApiTable->RegistrationOpen(&registrationConfig, &Registration);
     if (QUIC_FAILED(retRegistrationOpen))
@@ -241,22 +291,31 @@ void QuicWrapper::CloseConfiguration(HQUIC Configuration)
     }
 }
 
-void QuicWrapper::LoadConfigurationCredential(HQUIC Configuration, bool useCertificateValidation)
+void QuicWrapper::LoadConfigurationCredential(HQUIC Configuration, bool bUseCertificateValidation)
 {
     QUIC_CREDENTIAL_CONFIG credentialConfig;
     memset(&credentialConfig, 0, sizeof(credentialConfig));
 
     credentialConfig.Type = QUIC_CREDENTIAL_TYPE_NONE;
-    credentialConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
-    credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
-    credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_DEFER_CERTIFICATE_VALIDATION;
 
-    if (!useCertificateValidation)
+    credentialConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
+
+    if (bUseCertificateValidation)
+    {
+        // QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED ì´ë²¤íŠ¸ë¥¼ í˜¸ì¶œë°›ë„ë¡ ì„¤ì •í•©ë‹ˆë‹¤.
+        credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
+
+        // ìµœì¢… ì¸ì¦ì„œ ê²€ì¦ì„ Applicaitonì—ì„œ ìˆ˜í–‰í•˜ë„ë¡ í•©ë‹ˆë‹¤.
+        credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_DEFER_CERTIFICATE_VALIDATION;
+
+        // ì¸ì¦ì„œ ê²€ì¦ì„ OpenSSLì´ ìˆ˜í–‰í•©ë‹ˆë‹¤.
+        credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_USE_TLS_BUILTIN_CERTIFICATE_VALIDATION;
+    }
+    else
     {
         credentialConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
     }
 
-    // TLS ÀÚ°Ý Áõ¸í ·Îµå - ÀÎÁõ¼­°¡ ÇÊ¿äÇÑÁö ¿©ºÎ¸¦ ³ªÅ¸³»±â À§ÇØ Å¬¶óÀÌ¾ðÆ® Ãø¿¡¼­µµ ÇÊ¿äÇÕ´Ï´Ù.
     QUIC_STATUS retConfigurationLoadCredential = QuicApiTable->ConfigurationLoadCredential(Configuration, &credentialConfig);
     if (QUIC_FAILED(retConfigurationLoadCredential))
     {
