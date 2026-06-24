@@ -35,6 +35,8 @@ public:
     bool IsConnected() const { return bIsConnected.load(); }
     EQuicError GetLastQuicError() const { return LastQuicError; }
 
+    std::string GetNegotiatedAlpn() { return NegotiatedAlpn; }
+
 protected:
     virtual void OnConnected(bool bIsConnectedSuccessfully) = 0;
     virtual void OnClosed(EQuicError Error) = 0;
@@ -85,6 +87,7 @@ private:
     void OnStreamPeerAccepted();
 
 private:
+    std::string NegotiatedAlpn;
     std::atomic<bool> bIsCertificateAccepted;
     std::atomic<bool> bIsConnected;
     std::atomic<bool> bIsConnecting;

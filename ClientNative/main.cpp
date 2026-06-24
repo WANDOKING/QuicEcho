@@ -29,7 +29,14 @@ public:
 protected:
     void OnConnected(bool isConnectSucceed) override
     {
-        std::cout << std::format("Connected: {}\n", isConnectSucceed ? "Success" : "Failure");
+        if (isConnectSucceed)
+        {
+            std::cout << std::format("Connect Success. Negotiated ALPN: {}\n", GetNegotiatedAlpn());
+        }
+        else
+        {
+            std::cout << std::format("Connect Failed. LastQuicError: {}\n", QuicWrapper::QuicErrorToString(GetLastQuicError()));
+        }
     }
 
     void OnClosed(EQuicError Error) override
@@ -54,7 +61,7 @@ protected:
         }
 
         std::cout << std::format("Certificate validation failed with error code: {}, Detail: {}\n", validationResult, CertificateValidator::GetInformationForCertificateValidation(validationResult));
-        return false;
+        return true;
     }
 
 private:
@@ -76,13 +83,14 @@ int main(void)
     }
 
     // Configuration Open
-    HQUIC Configuration = QuicWrapper::OpenConfigurationOrNull(0, 10'000, 5'000, true);
+    HQUIC Configuration = QuicWrapper::OpenConfigurationOrNull(0, 5'000, 5'000, true);
 
     // Client Create
     TestQuicClient Client(Configuration);
 
     std::cout << "Press '1' to Connect\n";
     std::cout << "Press '2' to Close\n";
+    std::cout << "Press '3' to Exit\n";
     std::cout << "Press 's' to Send\n";
     std::cout << "Press 'p' to Print System Root Certificates\n";
 
@@ -101,16 +109,23 @@ int main(void)
                     break;
                 }
 
-                Client.Connect("127.0.0.1", 23456);
+                std::cout << "Connecting...\n";
+                if (Client.Connect("127.0.0.1", 23456))
+                {
+                    std::cout << "Connected\n";
+                }
+                else
+                {
+                    std::cout << "Connect failed\n";
+                }
+
                 break;
 
             case '2':
-                if (!Client.IsConnected())
-                {
-                    break;
-                }
-
                 Client.Close();
+                break;
+
+            case '3':
                 goto END;
                 break;
 
@@ -138,6 +153,8 @@ int main(void)
     }
 
 END:
+    std::cout << "Cleanning...\n";
+
     // Cleanup
     QuicWrapper::CloseConfiguration(Configuration);
     QuicWrapper::Cleanup();

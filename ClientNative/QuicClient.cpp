@@ -105,6 +105,7 @@ QuicClient::ConnectionCallback(HQUIC connection, void* context, QUIC_CONNECTION_
             event->PEER_CERTIFICATE_RECEIVED.DeferredStatus,
             event->PEER_CERTIFICATE_RECEIVED.Chain);
 
+        // NOTE: 바로 위인 OnRemoteCertificateReceived의 결과
         if (false == Client->bIsCertificateAccepted)
         {
             return QUIC_STATUS_BAD_CERTIFICATE;
@@ -202,6 +203,9 @@ QuicClient::StreamCallback(HQUIC stream, void* context, QUIC_STREAM_EVENT* event
 
 void QuicClient::OnConnected(const uint8_t* negotiatedAlpn, const uint8_t negotiatedAlpnLength, const bool sessionResumed)
 {
+    NegotiatedAlpn = std::string(reinterpret_cast<const char*>(negotiatedAlpn), negotiatedAlpnLength);
+    std::cout << std::format("OnConnected called: ALPN:{}, sessionResumed={}\n", NegotiatedAlpn, sessionResumed);
+
     bIsConnected.store(true);
     bIsConnecting.store(false);
     OnConnected(true);
@@ -209,45 +213,52 @@ void QuicClient::OnConnected(const uint8_t* negotiatedAlpn, const uint8_t negoti
 
 void QuicClient::OnShutdownInitiatedByTransport(QUIC_STATUS status, QUIC_UINT62 errorCode)
 {
+    std::cout << "OnShutdownInitiatedByTransport called\n";
+
     SetLastQuicError(QuicWrapper::ConvertQuicStatus(status));
 }
 
 void QuicClient::OnShutdownInitiatedByPeer(QUIC_UINT62 errorCode)
 {
+    std::cout << "OnShutdownInitiatedByPeer called\n";
+
     SetLastQuicError(EQuicError::Aborted);
 }
 
 void QuicClient::OnShutdownComplete(bool handshakeCompleted, bool peerAcknowledgedShutdown, bool appCloseInProgress)
 {
+    std::cout << "OnShutdownComplete called:\n";
+
+    bIsConnecting.store(false);
     bIsConnected.store(false);
 
-    if (appCloseInProgress)
+    if (handshakeCompleted)
     {
-        if (handshakeCompleted)
-        {
-            OnConnected(false);
-            OnClosed(LastQuicError);
-        }
-        else
-        {
-            // 연결 실패 상황
-            bIsConnecting.store(false);
-            OnClosed(LastQuicError);
-        }
+        OnClosed(LastQuicError);
     }
     else
     {
+        OnConnected(false);
+    }
+
+    // NOTE: appCloseInProgress
+    // A flag indicating that the application called ConnectionClose on this connection.
+    if (appCloseInProgress)
+    {
         QuicWrapper::CloseConnection(Connection);
+        Connection = nullptr;
     }
 }
 
 void QuicClient::OnStreamStartComplete(QUIC_STATUS status, QUIC_UINT62 id, bool peerAccepted)
 {
-    std::cout << "OnStartComplete called\n";
+    std::cout << "OnStreamStartComplete called\n";
 }
 
 void QuicClient::OnStreamReceived(const uint64_t absoluteOffset, const uint64_t totalBufferLength, const QUIC_BUFFER* buffers, const uint32_t bufferCount, const QUIC_RECEIVE_FLAGS flags)
 {
+    std::cout << "OnStreamReceived called\n";
+
     for (uint32_t i = 0; i < bufferCount; i++)
     {
         OnReceived(buffers[i].Buffer, buffers[i].Length);
@@ -310,12 +321,14 @@ void QuicClient::OnStreamPeerAccepted()
 }
 
 QuicClient::QuicClient(HQUIC Configuration)
-    : LastQuicError(EQuicError::Success)
-    , Configuration(Configuration)
+    : Configuration(Configuration)
+    , Connection(nullptr)
+    , Stream(nullptr)
+    , LastQuicError(EQuicError::Success)
 {
+    bIsCertificateAccepted.store(false);
     bIsConnected.store(false);
-    QuicWrapper::CreateConnection(ConnectionCallback, this, &Connection);
-    QuicWrapper::OpenStream(Connection, &Stream, this, StreamCallback);
+    bIsConnecting.store(false);
 }
 
 QuicClient::~QuicClient()
@@ -326,9 +339,16 @@ QuicClient::~QuicClient()
 bool QuicClient::Connect(const std::string& InServerName, uint16_t InServerPort)
 {
     bIsConnecting.store(true);
-    QuicWrapper::Connect(Connection, Configuration, InServerName.c_str(), InServerPort);
 
-    while (bIsConnecting.load()) {
+    bool retConnectAsync = ConnectAsync(InServerName, InServerPort);
+    if (false == retConnectAsync)
+    {
+        bIsConnecting.store(false);
+        return false;
+    }
+
+    while (bIsConnecting.load())
+    {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
@@ -337,17 +357,14 @@ bool QuicClient::Connect(const std::string& InServerName, uint16_t InServerPort)
 
 bool QuicClient::ConnectAsync(const std::string& InServerName, uint16_t InServerPort)
 {
+    QuicWrapper::CreateConnection(ConnectionCallback, this, &Connection);
+    QuicWrapper::OpenStream(Connection, &Stream, this, StreamCallback);
     return QuicWrapper::Connect(Connection, Configuration, InServerName.c_str(), InServerPort);
 }
 
 void QuicClient::Close()
 {
-    if (IsConnected() == false)
-    {
-        return;
-    }
-
-    QuicWrapper::ShutdownConnection(Connection);
+    CloseAsync();
 
     while (IsConnected())
     {
@@ -357,12 +374,11 @@ void QuicClient::Close()
 
 void QuicClient::CloseAsync()
 {
-    if (IsConnected() == false)
+    if (Connection)
     {
-        return;
+        QuicWrapper::ShutdownConnection(Connection);
+        Connection = nullptr;
     }
-
-    QuicWrapper::CloseConnection(Connection);
 }
 
 bool QuicClient::Send(const uint8_t* data, const uint32_t count)
